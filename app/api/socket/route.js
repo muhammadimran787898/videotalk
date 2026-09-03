@@ -343,6 +343,25 @@ export async function POST(request) {
         return Response.json({ success: true });
       }
 
+      case "kick-user": {
+        if (!roomId || !targetUserId) {
+          return Response.json(
+            { error: "Missing roomId or targetUserId" },
+            { status: 400 }
+          );
+        }
+
+        const room = await getRoomData(roomId);
+        room.users = room.users.filter((u) => u.id !== targetUserId);
+        room.pending = room.pending.filter((u) => u.id !== targetUserId);
+        if (!room.rejected.includes(targetUserId)) {
+          room.rejected.push(targetUserId);
+        }
+        await saveRoomData(roomId, room);
+
+        return Response.json({ success: true, kickedUserId: targetUserId });
+      }
+
       case "start-screen-share": {
         if (!roomId || !userId) {
           return Response.json(

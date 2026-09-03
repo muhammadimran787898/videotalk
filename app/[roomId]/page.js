@@ -10,11 +10,14 @@ import useMediaStream from "@/hooks/use-media-stream";
 import usePlayer from "@/hooks/use-player";
 import useChat from "@/hooks/use-chat";
 import useScreenShare from "@/hooks/use-screen-share";
+import useReactions from "@/hooks/use-reactions";
+import useHandRaise from "@/hooks/use-hand-raise";
 
 import SimpleCallLayout from "@/components/simple-call-layout";
 import FloatingControls from "@/components/floating-controls";
 import SimpleVideoGrid from "@/components/simple-video-grid";
 import SimpleChat from "@/components/simple-chat";
+import ParticipantsDrawer from "@/components/participants-drawer";
 import PermissionRequest from "@/components/permission-request";
 import WaitingRoom from "@/components/waiting-room";
 import HostApprovalBanner from "@/components/host-approval-banner";
@@ -57,11 +60,24 @@ const Room = () => {
   const [callStartTime] = useState(() => Date.now());
   const [callDuration, setCallDuration] = useState(0);
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [isParticipantsOpen, setIsParticipantsOpen] = useState(false);
 
   // Room status and Host Approval state
   const [roomStatus, setRoomStatus] = useState("approved");
   const [isHost, setIsHost] = useState(false);
   const [pendingRequests, setPendingRequests] = useState([]);
+
+  // Initialize Reactions & Hand Raise hooks
+  const { activeReactions, sendReaction, EMOJIS } = useReactions(
+    socket,
+    roomId,
+    myId
+  );
+  const { raisedHands, isHandRaised, toggleHandRaise } = useHandRaise(
+    socket,
+    roomId,
+    myId
+  );
 
   useEffect(() => {
     if (!socket) return;
@@ -384,7 +400,11 @@ const Room = () => {
           <SimpleVideoGrid
             players={players}
             highlightedPlayerId={
-              playerHighlighted
+              activeScreenSharer
+                ? activeScreenSharer.userId
+                : isScreenSharing
+                ? myId
+                : playerHighlighted
                 ? Object.keys(players).find(
                     (id) => players[id] === playerHighlighted
                   )
@@ -393,9 +413,16 @@ const Room = () => {
             onPlayerClick={(playerId) => {
               console.log(`Player ${playerId} clicked`);
             }}
+            onRemoveUser={(targetId) => {
+              socket?.emit("kick-user", targetId, roomId);
+              showToast("Removed participant from call", "info");
+            }}
             myId={myId}
+            isHost={isHost}
             isAudioEnabled={isAudioEnabled}
             selectedAudioOutput={selectedAudioOutput}
+            raisedHands={raisedHands}
+            activeReactions={activeReactions}
             className="h-full"
           />
         </div>
@@ -410,14 +437,37 @@ const Room = () => {
           toggleVideo={toggleVideo}
           leaveRoom={leaveRoom}
           onToggleChat={() => setIsChatOpen((prev) => !prev)}
+          onToggleParticipants={() => setIsParticipantsOpen((prev) => !prev)}
+          participantCount={Object.keys(players).length}
           isChatOpen={isChatOpen}
+          isParticipantsOpen={isParticipantsOpen}
           unreadCount={messages.length}
           isScreenSharing={isScreenSharing}
           toggleScreenShare={toggleScreenShare}
           isAnotherSharing={isAnotherSharing}
           activeScreenSharer={activeScreenSharer}
+          onSendReaction={sendReaction}
+          isHandRaised={isHandRaised}
+          toggleHandRaise={toggleHandRaise}
+          emojis={EMOJIS}
+          callDuration={callDuration}
         />
       )}
+
+      {/* Participants Drawer */}
+      <ParticipantsDrawer
+        isOpen={isParticipantsOpen}
+        onToggle={setIsParticipantsOpen}
+        participants={Object.keys(players)}
+        userProfiles={socket?.userProfiles || {}}
+        hostId={socket?.hostId}
+        myId={myId}
+        isHost={isHost}
+        onRemoveUser={(targetId) => {
+          socket?.emit("kick-user", targetId, roomId);
+          showToast("Removed participant from call", "info");
+        }}
+      />
 
       {/* Chat Panel */}
       {myId && (

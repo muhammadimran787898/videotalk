@@ -57,6 +57,25 @@
   --chart-5: 340 75% 55%;
 }
 
+@keyframes floatUp {
+  0% {
+    opacity: 1;
+    transform: translateY(0) scale(0.6);
+  }
+  50% {
+    opacity: 0.9;
+    transform: translateY(-160px) scale(1.2) rotate(10deg);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-300px) scale(0.8) rotate(-10deg);
+  }
+}
+
+.animate-emoji-float {
+  animation: floatUp 3.2s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
 @layer base {
   * {
     @apply border-border;

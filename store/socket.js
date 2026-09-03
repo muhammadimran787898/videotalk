@@ -111,6 +111,14 @@ class APISocket {
           });
           break;
 
+        case "kick-user":
+          const [kickTargetId, kickRoomId] = args;
+          await this.makeAPICall("kick-user", {
+            roomId: kickRoomId,
+            targetUserId: kickTargetId,
+          });
+          break;
+
         case "user-toggle-audio":
           const [audioUserId, audioRoomId] = args;
           await this.makeAPICall("toggle-audio", {
