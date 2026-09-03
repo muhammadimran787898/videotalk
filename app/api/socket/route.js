@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+const MAX_ROOM_USERS = 12;
 
 // In-memory store for local dev fallback
 const rooms = new Map();
@@ -27,60 +27,40 @@ async function redisRest(command, ...args) {
   }
 }
 
-// Room management helpers
-async function addRoomUser(roomId, user) {
-  const redisResult = await redisRest(
-    "hset",
-    `room:${roomId}`,
-    user.id,
-    JSON.stringify(user)
-  );
-  if (redisResult !== null) {
-    await redisRest("expire", `room:${roomId}`, 7200);
+async function getRoomData(roomId) {
+  const redisData = await redisRest("get", `roomstate:${roomId}`);
+  if (redisData) {
+    try {
+      return JSON.parse(redisData);
+    } catch (e) {}
   }
-
-  // Always update local map as well
-  if (!rooms.has(roomId)) {
-    rooms.set(roomId, { users: [] });
-  }
-  const room = rooms.get(roomId);
-  const existingIdx = room.users.findIndex((u) => u.id === user.id);
-  if (existingIdx >= 0) {
-    room.users[existingIdx] = user;
-  } else {
-    room.users.push(user);
-  }
+  return rooms.get(roomId) || { hostId: null, users: [], pending: [], rejected: [] };
 }
 
-async function getRoomUsers(roomId) {
-  // Try Redis first for serverless multi-instance sync
-  const hashResult = await redisRest("hgetall", `room:${roomId}`);
-  if (hashResult && Array.isArray(hashResult) && hashResult.length > 0) {
-    const usersList = [];
-    for (let i = 1; i < hashResult.length; i += 2) {
-      try {
-        usersList.push(JSON.parse(hashResult[i]));
-      } catch (e) {
-        // ignore parse error
-      }
-    }
-    if (usersList.length > 0) return usersList;
-  }
+async function saveRoomData(roomId, data) {
+  await redisRest("set", `roomstate:${roomId}`, JSON.stringify(data));
+  await redisRest("expire", `roomstate:${roomId}`, 7200);
+  rooms.set(roomId, data);
+}
 
-  // Fallback to local map
-  const roomData = rooms.get(roomId);
-  return roomData ? roomData.users : [];
+async function removeRoomData(roomId) {
+  await redisRest("del", `roomstate:${roomId}`);
+  rooms.delete(roomId);
 }
 
 async function removeRoomUser(roomId, userId) {
-  await redisRest("hdel", `room:${roomId}`, userId);
+  const room = await getRoomData(roomId);
+  room.users = room.users.filter((u) => u.id !== userId);
+  room.pending = room.pending.filter((u) => u.id !== userId);
 
-  if (rooms.has(roomId)) {
-    const room = rooms.get(roomId);
-    room.users = room.users.filter((user) => user.id !== userId);
-    if (room.users.length === 0) {
-      rooms.delete(roomId);
-    }
+  if (room.hostId === userId) {
+    room.hostId = room.users.length > 0 ? room.users[0].id : null;
+  }
+
+  if (room.users.length === 0 && room.pending.length === 0) {
+    await removeRoomData(roomId);
+  } else {
+    await saveRoomData(roomId, room);
   }
 
   // Clear screen sharer if leaving user was sharing
@@ -137,7 +117,7 @@ export async function GET(request) {
 
   try {
     switch (action) {
-      case "join-room":
+      case "join-room": {
         if (!roomId || !userId) {
           return Response.json(
             { error: "Missing roomId or userId" },
@@ -145,10 +125,11 @@ export async function GET(request) {
           );
         }
 
+        const room = await getRoomData(roomId);
         const newSessionId = `session_${Date.now()}_${Math.random()
           .toString(36)
           .substr(2, 9)}`;
-        
+
         userSessions.set(newSessionId, {
           userId,
           userName,
@@ -156,45 +137,122 @@ export async function GET(request) {
           lastSeen: Date.now(),
         });
 
-        const userObj = {
-          id: userId,
-          name: userName,
-          sessionId: newSessionId,
-          joinedAt: Date.now(),
-        };
+        // 1. Check if room is full (max 12 users)
+        if (room.users.length >= MAX_ROOM_USERS && !room.users.some((u) => u.id === userId)) {
+          return Response.json({
+            success: false,
+            isFull: true,
+            error: `Room is full. Maximum ${MAX_ROOM_USERS} participants allowed.`,
+          });
+        }
 
-        await addRoomUser(roomId, userObj);
-        const currentUsers = await getRoomUsers(roomId);
-        const activeSharer = await getScreenSharer(roomId);
+        // 2. Check if user was rejected
+        if (room.rejected.includes(userId)) {
+          return Response.json({
+            success: false,
+            isRejected: true,
+            status: "rejected",
+            error: "Host declined your request to join this call.",
+          });
+        }
+
+        // 3. First user becomes Host automatically
+        if (!room.hostId || room.users.length === 0) {
+          room.hostId = userId;
+        }
+
+        const isHost = room.hostId === userId;
+        const alreadyApproved = room.users.some((u) => u.id === userId);
+
+        if (isHost || alreadyApproved) {
+          const userObj = {
+            id: userId,
+            name: userName,
+            sessionId: newSessionId,
+            joinedAt: Date.now(),
+          };
+
+          const existingIdx = room.users.findIndex((u) => u.id === userId);
+          if (existingIdx >= 0) {
+            room.users[existingIdx] = userObj;
+          } else {
+            room.users.push(userObj);
+          }
+
+          // Remove from pending if present
+          room.pending = room.pending.filter((u) => u.id !== userId);
+          await saveRoomData(roomId, room);
+
+          const activeSharer = await getScreenSharer(roomId);
+
+          return Response.json({
+            success: true,
+            status: "approved",
+            isHost,
+            sessionId: newSessionId,
+            roomUsers: room.users.map((u) => u.id),
+            userProfiles: room.users.reduce((acc, u) => {
+              acc[u.id] = u.name;
+              return acc;
+            }, {}),
+            pendingRequests: isHost ? room.pending : [],
+            activeScreenSharer: activeSharer,
+          });
+        }
+
+        // 4. Guest joining -> put in pending / waiting room
+        const existingPending = room.pending.find((u) => u.id === userId);
+        if (!existingPending) {
+          room.pending.push({
+            id: userId,
+            name: userName,
+            requestedAt: Date.now(),
+          });
+          await saveRoomData(roomId, room);
+        }
 
         return Response.json({
           success: true,
-          sessionId: newSessionId,
-          roomUsers: currentUsers.map((u) => u.id),
-          userProfiles: currentUsers.reduce((acc, u) => {
-            acc[u.id] = u.name;
-            return acc;
-          }, {}),
-          activeScreenSharer: activeSharer,
+          isWaiting: true,
+          status: "waiting",
+          message: "Waiting for host approval...",
         });
+      }
 
-      case "get-room-users":
+      case "get-room-users": {
         if (!roomId) {
           return Response.json({ error: "Missing roomId" }, { status: 400 });
         }
 
-        const roomUsersList = await getRoomUsers(roomId);
+        const room = await getRoomData(roomId);
+        const isUserApproved = room.users.some((u) => u.id === userId);
+        const isUserPending = room.pending.some((u) => u.id === userId);
+        const isUserRejected = room.rejected.includes(userId);
+        const isHost = room.hostId === userId;
+
         const currentActiveSharer = await getScreenSharer(roomId);
+
         return Response.json({
-          users: roomUsersList.map((u) => u.id),
-          userProfiles: roomUsersList.reduce((acc, u) => {
+          status: isUserApproved
+            ? "approved"
+            : isUserRejected
+            ? "rejected"
+            : isUserPending
+            ? "waiting"
+            : "unknown",
+          hostId: room.hostId,
+          isHost,
+          users: room.users.map((u) => u.id),
+          userProfiles: room.users.reduce((acc, u) => {
             acc[u.id] = u.name;
             return acc;
           }, {}),
+          pendingRequests: isHost ? room.pending : [],
           activeScreenSharer: currentActiveSharer,
         });
+      }
 
-      case "leave-room":
+      case "leave-room": {
         if (!roomId || !userId) {
           return Response.json(
             { error: "Missing roomId or userId" },
@@ -212,8 +270,9 @@ export async function GET(request) {
         }
 
         return Response.json({ success: true });
+      }
 
-      case "ping":
+      case "ping": {
         if (sessionId) {
           const session = userSessions.get(sessionId);
           if (session) {
@@ -222,6 +281,7 @@ export async function GET(request) {
           }
         }
         return Response.json({ error: "Session not found" }, { status: 404 });
+      }
 
       default:
         return Response.json({ error: "Invalid action" }, { status: 400 });
@@ -235,10 +295,54 @@ export async function GET(request) {
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { action, roomId, userId, userName } = body;
+    const { action, roomId, userId, targetUserId, userName } = body;
 
     switch (action) {
-      case "start-screen-share":
+      case "approve-user": {
+        if (!roomId || !targetUserId) {
+          return Response.json(
+            { error: "Missing roomId or targetUserId" },
+            { status: 400 }
+          );
+        }
+
+        const room = await getRoomData(roomId);
+        const pendingUser = room.pending.find((u) => u.id === targetUserId);
+        
+        if (pendingUser) {
+          room.pending = room.pending.filter((u) => u.id !== targetUserId);
+          if (!room.users.some((u) => u.id === targetUserId)) {
+            room.users.push({
+              id: pendingUser.id,
+              name: pendingUser.name,
+              joinedAt: Date.now(),
+            });
+          }
+          await saveRoomData(roomId, room);
+        }
+
+        return Response.json({ success: true });
+      }
+
+      case "reject-user": {
+        if (!roomId || !targetUserId) {
+          return Response.json(
+            { error: "Missing roomId or targetUserId" },
+            { status: 400 }
+          );
+        }
+
+        const room = await getRoomData(roomId);
+        room.pending = room.pending.filter((u) => u.id !== targetUserId);
+        if (!room.rejected.includes(targetUserId)) {
+          room.rejected.push(targetUserId);
+        }
+        await saveRoomData(roomId, room);
+
+        return Response.json({ success: true });
+      }
+
+      case "start-screen-share": {
         if (!roomId || !userId) {
           return Response.json(
             { error: "Missing roomId or userId" },
@@ -266,8 +370,9 @@ export async function POST(request) {
           success: true,
           activeScreenSharer: sharerInfo,
         });
+      }
 
-      case "stop-screen-share":
+      case "stop-screen-share": {
         if (!roomId || !userId) {
           return Response.json(
             { error: "Missing roomId or userId" },
@@ -283,9 +388,10 @@ export async function POST(request) {
         return Response.json({
           success: true,
         });
+      }
 
       case "toggle-audio":
-      case "toggle-video":
+      case "toggle-video": {
         if (!roomId || !userId) {
           return Response.json(
             { error: "Missing roomId or userId" },
@@ -293,8 +399,8 @@ export async function POST(request) {
           );
         }
 
-        const roomUsers = await getRoomUsers(roomId);
-        const otherUsers = roomUsers.filter((user) => user.id !== userId);
+        const room = await getRoomData(roomId);
+        const otherUsers = room.users.filter((user) => user.id !== userId);
 
         return Response.json({
           success: true,
@@ -302,8 +408,9 @@ export async function POST(request) {
           targetUserId: userId,
           affectedUsers: otherUsers.map((u) => u.id),
         });
+      }
 
-      case "ping":
+      case "ping": {
         const { sessionId } = body;
         if (sessionId) {
           const session = userSessions.get(sessionId);
@@ -313,6 +420,7 @@ export async function POST(request) {
           }
         }
         return Response.json({ error: "Session not found" }, { status: 404 });
+      }
 
       default:
         return Response.json({ error: "Invalid action" }, { status: 400 });

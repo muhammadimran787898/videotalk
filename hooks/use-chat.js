@@ -25,17 +25,20 @@ const useChat = (peer, myId, users = {}) => {
    * @param {Object} message - Message object
    */
   const addMessage = useCallback((message) => {
+    const isPrivate = message.recipientId && message.recipientId !== "everyone";
     const newMessage = {
       id: message.id || `${Date.now()}-${Math.random()}`,
       text: message.text,
       senderId: message.senderId,
       senderName: message.senderName || message.senderId,
+      recipientId: message.recipientId || "everyone",
+      recipientName: message.recipientName || "Everyone",
+      isPrivate: !!isPrivate,
       timestamp: message.timestamp || new Date().toISOString(),
       isOwn: message.senderId === myId
     };
 
     setMessages(prev => {
-      // Prevent duplicate messages
       const exists = prev.some(msg => msg.id === newMessage.id);
       if (exists) return prev;
       return [...prev, newMessage];
@@ -43,42 +46,58 @@ const useChat = (peer, myId, users = {}) => {
   }, [myId]);
 
   /**
-   * Send a text message to all connected peers
+   * Send a text message to all connected peers or a private recipient
    * @param {string} messageText - The message text to send
+   * @param {string} recipientId - "everyone" or target peer ID
+   * @param {string} recipientName - Display name of target recipient
    */
-  const sendMessage = useCallback((messageText) => {
+  const sendMessage = useCallback((messageText, recipientId = "everyone", recipientName = "Everyone") => {
     if (!messageText || !messageText.trim()) return false;
 
     const mySavedName = typeof window !== "undefined" ? localStorage.getItem("streamtalk_username") || "" : "";
     const displayName = mySavedName.trim() || `User ${myId?.slice(0, 4) || ""}`;
+    const isPrivate = recipientId && recipientId !== "everyone";
 
     const message = {
       id: `${myId}-${Date.now()}-${Math.random()}`,
       text: messageText.trim(),
       senderId: myId,
       senderName: displayName,
+      recipientId: recipientId || "everyone",
+      recipientName: isPrivate ? recipientName : "Everyone",
+      isPrivate,
       timestamp: new Date().toISOString(),
       type: 'chat-message'
     };
 
-    // Add to local messages immediately
     addMessage(message);
 
-    // Send to all connected peers
     let sentCount = 0;
-    Object.entries(dataChannels).forEach(([peerId, channel]) => {
+    if (isPrivate) {
+      const channel = dataChannels[recipientId];
       if (channel && channel.readyState === 'open') {
         try {
           channel.send(JSON.stringify(message));
           sentCount++;
         } catch (error) {
-          console.error(`Failed to send message to peer ${peerId}:`, error);
+          console.error(`Failed to send private message to peer ${recipientId}:`, error);
         }
       }
-    });
+    } else {
+      Object.entries(dataChannels).forEach(([peerId, channel]) => {
+        if (channel && channel.readyState === 'open') {
+          try {
+            channel.send(JSON.stringify(message));
+            sentCount++;
+          } catch (error) {
+            console.error(`Failed to send message to peer ${peerId}:`, error);
+          }
+        }
+      });
+    }
 
-    console.log(`Message sent to ${sentCount} peers`);
-    return sentCount > 0;
+    console.log(`Message sent to ${sentCount} peers (${isPrivate ? 'Private' : 'Public'})`);
+    return true;
   }, [myId, dataChannels, addMessage]);
 
   /**

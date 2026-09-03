@@ -16,6 +16,8 @@ import FloatingControls from "@/components/floating-controls";
 import SimpleVideoGrid from "@/components/simple-video-grid";
 import SimpleChat from "@/components/simple-chat";
 import PermissionRequest from "@/components/permission-request";
+import WaitingRoom from "@/components/waiting-room";
+import HostApprovalBanner from "@/components/host-approval-banner";
 
 const Room = () => {
   const socket = useSocket();
@@ -55,6 +57,36 @@ const Room = () => {
   const [callDuration, setCallDuration] = useState(0);
   const [isChatOpen, setIsChatOpen] = useState(false);
 
+  // Room status and Host Approval state
+  const [roomStatus, setRoomStatus] = useState("approved");
+  const [isHost, setIsHost] = useState(false);
+  const [pendingRequests, setPendingRequests] = useState([]);
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleStatusChanged = (info) => {
+      if (info.status) setRoomStatus(info.status);
+      if (info.isHost !== undefined) setIsHost(info.isHost);
+    };
+
+    const handlePendingUpdated = (requests) => {
+      setPendingRequests(requests || []);
+    };
+
+    socket.on("room-status-changed", handleStatusChanged);
+    socket.on("pending-requests-updated", handlePendingUpdated);
+
+    if (socket.roomStatus) setRoomStatus(socket.roomStatus);
+    if (socket.isHost !== undefined) setIsHost(socket.isHost);
+    if (socket.pendingRequests) setPendingRequests(socket.pendingRequests);
+
+    return () => {
+      socket.off("room-status-changed", handleStatusChanged);
+      socket.off("pending-requests-updated", handlePendingUpdated);
+    };
+  }, [socket]);
+
   // Initialize screen share functionality
   const {
     isScreenSharing,
@@ -82,8 +114,6 @@ const Room = () => {
   }, [callStartTime]);
 
   // Add yourself to players when stream is ready
-  // Initial setup: add yourself to players when stream and myId are ready.
-  // Toggles are handled by usePlayer — no need to re-fire on audio/video state changes.
   const hasSetupPlayer = useRef(false);
   useEffect(() => {
     if (hasSetupPlayer.current || !myId || !stream) return;
@@ -99,7 +129,6 @@ const Room = () => {
     }));
   }, [myId, stream, isAudioEnabled, isVideoEnabled, setPlayers]);
 
-  // Enhanced retry media stream with audio diagnostics
   const retryMediaStream = async () => {
     if (process.env.NODE_ENV === "development") {
       const { quickAudioCheck } = await import("@/utils/audio-diagnostics");
@@ -110,7 +139,7 @@ const Room = () => {
   };
 
   useEffect(() => {
-    if (!socket || !peer || !stream) return;
+    if (!socket || !peer || !stream || roomStatus !== "approved") return;
 
     const handleUserConnected = (newUser) => {
       console.log(`user connected in room with userId ${newUser}`);
@@ -170,13 +199,12 @@ const Room = () => {
     return () => {
       socket.off("user-connected", handleUserConnected);
     };
-  }, [peer, setPlayers, socket, stream]);
+  }, [peer, setPlayers, socket, stream, roomStatus]);
 
   useEffect(() => {
     if (!socket) return;
 
     const handleToggleAudio = (userId) => {
-      console.log(`user with id ${userId} toggled audio`);
       setPlayers((prev) => {
         const copy = cloneDeep(prev);
         if (copy[userId]) {
@@ -188,17 +216,16 @@ const Room = () => {
     };
 
     const handleToggleVideo = (userId) => {
-      console.log(`user with id ${userId} toggled video`);
       setPlayers((prev) => {
         const copy = cloneDeep(prev);
-        copy[userId].playing = !copy[userId].playing;
+        if (copy[userId]) {
+          copy[userId].playing = !copy[userId].playing;
+        }
         return { ...copy };
       });
     };
 
     const handleUserLeave = (userId) => {
-      console.log(`user ${userId} is leaving the room`);
-
       cleanupPeerDataChannel(userId);
 
       if (users[userId]) {
@@ -230,7 +257,7 @@ const Room = () => {
   }, [players, setPlayers, socket, users, cleanupPeerDataChannel]);
 
   useEffect(() => {
-    if (!peer || !stream) return;
+    if (!peer || !stream || roomStatus !== "approved") return;
 
     peer.on("call", (call) => {
       const { peer: callerId } = call;
@@ -255,7 +282,6 @@ const Room = () => {
       });
 
       call.on("close", () => {
-        console.log(`Call closed with ${callerId}`);
         setPlayers((prev) => {
           const copy = cloneDeep(prev);
           delete copy[callerId];
@@ -284,9 +310,8 @@ const Room = () => {
         });
       });
     });
-  }, [peer, setPlayers, stream]);
+  }, [peer, setPlayers, stream, roomStatus]);
 
-  // Apply audio output device to all video elements when it changes
   useEffect(() => {
     if (selectedAudioOutput && selectedAudioOutput !== "default") {
       const videoElements = document.querySelectorAll("video");
@@ -300,6 +325,16 @@ const Room = () => {
     }
   }, [selectedAudioOutput]);
 
+  // Render Waiting Room for guests if not approved
+  if (roomStatus === "waiting" || roomStatus === "rejected" || roomStatus === "full") {
+    return (
+      <WaitingRoom
+        status={roomStatus}
+        onLeave={leaveRoom}
+      />
+    );
+  }
+
   return (
     <>
       {/* Permission Request Overlay */}
@@ -308,6 +343,15 @@ const Room = () => {
           error={mediaError}
           permissions={permissions}
           onRetry={retryMediaStream}
+        />
+      )}
+
+      {/* Host Approval Banner for Pending Requests */}
+      {isHost && (
+        <HostApprovalBanner
+          pendingRequests={pendingRequests}
+          onApprove={(targetId) => socket?.emit("approve-user", targetId, roomId)}
+          onReject={(targetId) => socket?.emit("reject-user", targetId, roomId)}
         />
       )}
 
@@ -367,6 +411,7 @@ const Room = () => {
           onSendMessage={sendMessage}
           isConnected={isChatConnected}
           connectedPeers={connectedPeers}
+          userProfiles={socket?.userProfiles || {}}
           myId={myId}
           isOpen={isChatOpen}
           onToggle={setIsChatOpen}

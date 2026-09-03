@@ -22,10 +22,14 @@ const usePeer = () => {
         myPeer = new Peer({
           config: {
             iceServers: [
-              // STUN servers — discover public IP
+              // STUN servers — discover public IP across global ISPs
               { urls: "stun:stun.l.google.com:19302" },
               { urls: "stun:stun1.l.google.com:19302" },
-              // TURN servers — relay media when direct P2P fails (NAT/firewall)
+              { urls: "stun:stun2.l.google.com:19302" },
+              { urls: "stun:stun3.l.google.com:19302" },
+              { urls: "stun:stun4.l.google.com:19302" },
+              { urls: "stun:global.stun.twilio.com:3478" },
+              // TURN servers — relay media when direct P2P fails (firewalls, NAT, cross-country)
               {
                 urls: "turn:openrelay.metered.ca:80",
                 username: "openrelayproject",

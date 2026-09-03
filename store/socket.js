@@ -52,17 +52,29 @@ class APISocket {
             this.isConnecting = false;
             this.connectionStatus = "connected";
             this.reconnectAttempts = 0;
+            this.isHost = joinData.isHost || false;
+            this.roomStatus = joinData.status || "approved";
+
             this.startPolling();
             this.trigger("connect");
             this.trigger("joined-room", roomId);
+            this.trigger("room-status-changed", {
+              status: joinData.status,
+              isHost: joinData.isHost,
+            });
 
             if (joinData.userProfiles) {
               this.userProfiles = joinData.userProfiles;
               this.trigger("profiles-updated", joinData.userProfiles);
             }
 
+            if (joinData.pendingRequests) {
+              this.pendingRequests = joinData.pendingRequests;
+              this.trigger("pending-requests-updated", joinData.pendingRequests);
+            }
+
             // Notify about existing users
-            if (joinData.roomUsers) {
+            if (joinData.roomUsers && joinData.status === "approved") {
               joinData.roomUsers.forEach((userId) => {
                 if (userId !== this.userId) {
                   this.trigger("user-connected", userId);
@@ -72,11 +84,31 @@ class APISocket {
           } else {
             this.isConnecting = false;
             this.connectionStatus = "error";
+            this.trigger("room-status-changed", {
+              status: joinData.isRejected ? "rejected" : joinData.isFull ? "full" : "error",
+              error: joinData.error,
+            });
             this.trigger(
               "connect_error",
               new Error(joinData.error || "Failed to join room")
             );
           }
+          break;
+
+        case "approve-user":
+          const [approveTargetId, approveRoomId] = args;
+          await this.makeAPICall("approve-user", {
+            roomId: approveRoomId,
+            targetUserId: approveTargetId,
+          });
+          break;
+
+        case "reject-user":
+          const [rejectTargetId, rejectRoomId] = args;
+          await this.makeAPICall("reject-user", {
+            roomId: rejectRoomId,
+            targetUserId: rejectTargetId,
+          });
           break;
 
         case "user-toggle-audio":
@@ -167,11 +199,34 @@ class APISocket {
             : "http://localhost:3000";
 
         const response = await fetch(
-          `${baseUrl}/api/socket?action=get-room-users&roomId=${this.roomId}`
+          `${baseUrl}/api/socket?action=get-room-users&roomId=${this.roomId}&userId=${this.userId}`
         );
         const data = await response.json();
 
-        if (data.users) {
+        if (data.status && data.status !== this.roomStatus) {
+          const oldStatus = this.roomStatus;
+          this.roomStatus = data.status;
+          this.trigger("room-status-changed", {
+            status: data.status,
+            oldStatus,
+            isHost: data.isHost,
+          });
+        }
+
+        if (data.isHost !== undefined) {
+          this.isHost = data.isHost;
+        }
+
+        if (data.pendingRequests) {
+          const newPendingStr = JSON.stringify(data.pendingRequests);
+          const oldPendingStr = JSON.stringify(this.pendingRequests || []);
+          if (newPendingStr !== oldPendingStr) {
+            this.pendingRequests = data.pendingRequests;
+            this.trigger("pending-requests-updated", data.pendingRequests);
+          }
+        }
+
+        if (data.users && data.status === "approved") {
           // Check for new users
           const currentUsers = new Set(data.users);
           const previousUsers = new Set(this.lastKnownUsers || []);

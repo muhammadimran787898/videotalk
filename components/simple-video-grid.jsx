@@ -49,44 +49,61 @@ const PlayerCard = memo(
 
     return (
       <div
-        className={`relative cursor-pointer transition-all duration-200 ${
+        className={`relative cursor-pointer transition-all duration-200 w-full h-full ${
           isHighlighted ? "col-span-full" : ""
         }`}
         onClick={() => onPlayerClick?.(playerId)}
       >
         {/* Video Container */}
         <div
-          className={`relative overflow-hidden rounded-lg transition-all duration-200 aspect-video [&_video]:object-cover ${
+          className={`relative overflow-hidden rounded-lg transition-all duration-200 aspect-video [&_video]:object-cover w-full h-full ${
             isHighlighted
-              ? "ring-2 ring-border bg-black"
+              ? "ring-2 ring-primary/80 bg-black"
               : "border border-border bg-black hover:border-border/70"
           }`}
-          style={{
-            height: videoSize.minHeight,
-          }}
+          style={
+            isHighlighted
+              ? { width: "100%", height: "100%", minHeight: "220px" }
+              : { height: videoSize.minHeight }
+          }
         >
           {player.playing ? (
             <div
               style={{
-                transform: "scaleX(-1)",
+                transform: isMe ? "scaleX(-1)" : "none",
                 width: "100%",
                 height: "100%",
               }}
             >
               <ReactPlayer
                 url={player.url}
-                muted={player.muted}
+                muted={isMe ? true : playerMuted}
                 playing={player.playing}
                 width="100%"
                 height="100%"
                 className="object-cover"
-                onReady={(player) => {
-                  if (
-                    selectedAudioOutput &&
-                    selectedAudioOutput !== "default"
-                  ) {
-                    const videoElement = player.getInternalPlayer();
-                    if (videoElement && videoElement.setSinkId) {
+                playsinline={true}
+                config={{
+                  file: {
+                    attributes: {
+                      playsInline: true,
+                      autoPlay: true,
+                    },
+                  },
+                }}
+                onReady={(playerInstance) => {
+                  const videoElement = playerInstance.getInternalPlayer();
+                  if (videoElement) {
+                    if (!isMe) {
+                      videoElement.play().catch((err) => {
+                        console.warn("Browser autoplay requires user interaction:", err);
+                      });
+                    }
+                    if (
+                      selectedAudioOutput &&
+                      selectedAudioOutput !== "default" &&
+                      videoElement.setSinkId
+                    ) {
                       videoElement
                         .setSinkId(selectedAudioOutput)
                         .catch((err) => {
@@ -117,7 +134,7 @@ const PlayerCard = memo(
           )}
 
           {/* User Info Overlay */}
-          <div className="absolute bottom-1.5 sm:bottom-2 left-1.5 sm:left-2 flex items-center gap-1 sm:gap-1.5">
+          <div className="absolute bottom-1.5 sm:bottom-2 left-1.5 sm:left-2 flex items-center gap-1 sm:gap-1.5 z-10">
             <Badge
               variant={playerMuted ? "destructive" : "secondary"}
               className="px-1 h-4 sm:h-5"
@@ -176,12 +193,13 @@ const SimpleVideoGrid = ({
     <div
       className={`w-full h-full flex flex-col justify-center items-center ${className}`}
     >
-      {/* Main Video Area */}
-      {highlightedPlayer && (
-        <div className="mb-2 sm:mb-3 md:mb-4 flex justify-center items-center w-full">
-          <div className="w-full max-w-2xl sm:max-w-3xl md:max-w-4xl mx-auto">
+      {/* Presentation View (Screen Share Active) */}
+      {highlightedPlayer ? (
+        <div className="w-full h-full flex flex-col md:flex-row gap-2 sm:gap-3 p-1 overflow-hidden max-h-full">
+          {/* Left Main Screen Share View */}
+          <div className="flex-1 flex items-center justify-center min-h-0 bg-black/40 rounded-xl overflow-hidden border border-border/60 p-1 relative">
             <PlayerCard
-              key={`${highlightedPlayerId}-${highlightedPlayer.url}`}
+              key={`main-${highlightedPlayerId}`}
               playerId={highlightedPlayerId}
               player={highlightedPlayer}
               isHighlighted={true}
@@ -192,52 +210,72 @@ const SimpleVideoGrid = ({
               selectedAudioOutput={selectedAudioOutput}
             />
           </div>
-        </div>
-      )}
 
-      {/* Participant Grid */}
-      {otherPlayers.length > 0 && (
-        <div className="flex justify-center items-center w-full">
-          <div
-            className={`grid gap-1.5 sm:gap-2 md:gap-3 ${getGridCols(otherPlayers.length)} w-full max-w-full sm:max-w-3xl md:max-w-6xl justify-items-center`}
-          >
-            {otherPlayers.map(([playerId, player]) => (
-              <PlayerCard
-                key={`${playerId}-${player.url}`}
-                playerId={playerId}
-                player={player}
-                isHighlighted={false}
-                totalCount={playerEntries.length}
-                isAudioEnabled={isAudioEnabled}
-                myId={myId}
-                onPlayerClick={onPlayerClick}
-                selectedAudioOutput={selectedAudioOutput}
-                />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Single player view */}
-      {!highlightedPlayer &&
-        otherPlayers.length === 0 &&
-        playerEntries.length === 1 && (
-          <div className="flex justify-center items-center w-full px-1 sm:px-0">
-            <div className="w-full max-w-md sm:max-w-2xl md:max-w-3xl mx-auto">
-              <PlayerCard
-                key={`${playerEntries[0][0]}-${playerEntries[0][1].url}`}
-                playerId={playerEntries[0][0]}
-                player={playerEntries[0][1]}
-                isHighlighted={false}
-                totalCount={1}
-                isAudioEnabled={isAudioEnabled}
-                myId={myId}
-                onPlayerClick={onPlayerClick}
-                selectedAudioOutput={selectedAudioOutput}
-                />
+          {/* Right Side Joinees Sidebar */}
+          {otherPlayers.length > 0 && (
+            <div className="w-full md:w-52 lg:w-60 shrink-0 flex md:flex-col gap-2 overflow-x-auto md:overflow-y-auto max-h-[160px] md:max-h-full p-1 scrollbar-thin">
+              {otherPlayers.map(([playerId, player]) => (
+                <div key={`side-${playerId}`} className="shrink-0 w-36 md:w-full h-28 md:h-36">
+                  <PlayerCard
+                    playerId={playerId}
+                    player={player}
+                    isHighlighted={false}
+                    totalCount={otherPlayers.length}
+                    isAudioEnabled={isAudioEnabled}
+                    myId={myId}
+                    onPlayerClick={onPlayerClick}
+                    selectedAudioOutput={selectedAudioOutput}
+                  />
+                </div>
+              ))}
             </div>
-          </div>
-        )}
+          )}
+        </div>
+      ) : (
+        /* Normal Grid View when no screen share is active */
+        <>
+          {otherPlayers.length > 0 && (
+            <div className="flex justify-center items-center w-full h-full">
+              <div
+                className={`grid gap-1.5 sm:gap-2 md:gap-3 ${getGridCols(otherPlayers.length)} w-full max-w-full sm:max-w-3xl md:max-w-6xl justify-items-center`}
+              >
+                {otherPlayers.map(([playerId, player]) => (
+                  <PlayerCard
+                    key={`${playerId}-${player.url}`}
+                    playerId={playerId}
+                    player={player}
+                    isHighlighted={false}
+                    totalCount={playerEntries.length}
+                    isAudioEnabled={isAudioEnabled}
+                    myId={myId}
+                    onPlayerClick={onPlayerClick}
+                    selectedAudioOutput={selectedAudioOutput}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Single player view */}
+          {otherPlayers.length === 0 && playerEntries.length === 1 && (
+            <div className="flex justify-center items-center w-full px-1 sm:px-0">
+              <div className="w-full max-w-md sm:max-w-2xl md:max-w-3xl mx-auto">
+                <PlayerCard
+                  key={`${playerEntries[0][0]}-${playerEntries[0][1].url}`}
+                  playerId={playerEntries[0][0]}
+                  player={playerEntries[0][1]}
+                  isHighlighted={false}
+                  totalCount={1}
+                  isAudioEnabled={isAudioEnabled}
+                  myId={myId}
+                  onPlayerClick={onPlayerClick}
+                  selectedAudioOutput={selectedAudioOutput}
+                />
+              </div>
+            </div>
+          )}
+        </>
+      )}
 
       {/* Empty State */}
       {playerEntries.length === 0 && (
