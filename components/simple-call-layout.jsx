@@ -39,6 +39,16 @@ const SimpleCallLayout = ({
     }
   };
 
+  const [copied, setCopied] = useState(false);
+
+  const copyRoomLink = () => {
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(window.location.href);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    }
+  };
+
   const handleShare = async () => {
     if (navigator.share) {
       try {
@@ -48,19 +58,10 @@ const SimpleCallLayout = ({
           url: window.location.href,
         });
       } catch (err) {
-        console.log("Error sharing:", err);
-        if (navigator.clipboard) {
-          navigator.clipboard.writeText(window.location.href);
-          alert("Room link copied to clipboard!");
-        }
+        copyRoomLink();
       }
     } else {
-      if (navigator.clipboard) {
-        navigator.clipboard.writeText(window.location.href);
-        alert("Room link copied to clipboard!");
-      } else {
-        onShare?.();
-      }
+      copyRoomLink();
     }
   };
 
@@ -73,11 +74,16 @@ const SimpleCallLayout = ({
         <header className="shrink-0 border-b bg-background/80 backdrop-blur-sm">
           <div className="flex items-center justify-between px-3 sm:px-4 h-12 sm:h-14">
             {/* Room Info */}
-            <div className="flex items-center gap-3">
-              <Badge variant="outline" className="gap-1.5 pl-2 pr-3 py-1">
+            <div className="flex items-center gap-2 sm:gap-3">
+              <Badge
+                variant="outline"
+                onClick={copyRoomLink}
+                className="gap-1.5 pl-2 pr-3 py-1 cursor-pointer hover:bg-accent transition-colors"
+                title="Click to copy room link"
+              >
                 <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
                 <span className="text-xs font-medium">
-                  {roomId?.slice(0, 8)}&hellip;
+                  {copied ? "Link Copied!" : `${roomId?.slice(0, 8)}…`}
                 </span>
               </Badge>
               <Badge variant="secondary" className="gap-1">
@@ -99,7 +105,7 @@ const SimpleCallLayout = ({
                     <Share2 size={16} />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Share room link</TooltipContent>
+                <TooltipContent>{copied ? "Link Copied!" : "Share room link"}</TooltipContent>
               </Tooltip>
 
               <Tooltip>

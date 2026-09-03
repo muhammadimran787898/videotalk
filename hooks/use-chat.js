@@ -49,11 +49,14 @@ const useChat = (peer, myId, users = {}) => {
   const sendMessage = useCallback((messageText) => {
     if (!messageText || !messageText.trim()) return false;
 
+    const mySavedName = typeof window !== "undefined" ? localStorage.getItem("streamtalk_username") || "" : "";
+    const displayName = mySavedName.trim() || `User ${myId?.slice(0, 4) || ""}`;
+
     const message = {
       id: `${myId}-${Date.now()}-${Math.random()}`,
       text: messageText.trim(),
       senderId: myId,
-      senderName: myId,
+      senderName: displayName,
       timestamp: new Date().toISOString(),
       type: 'chat-message'
     };

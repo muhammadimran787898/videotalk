@@ -1,30 +1,103 @@
 import { NextRequest } from "next/server";
 
-// In-memory store for room data (in production, use Redis or similar)
+// In-memory store for local dev fallback
 const rooms = new Map();
 const userSessions = new Map();
 
-// Clean up old sessions (older than 5 minutes)
+// Upstash / Vercel KV REST Execution Helper for Serverless Persistence
+async function redisRest(command, ...args) {
+  const url = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
+
+  if (!url || !token) return null;
+
+  try {
+    const formattedArgs = args.map((arg) => encodeURIComponent(String(arg))).join("/");
+    const res = await fetch(`${url}/${command}/${formattedArgs}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.result;
+  } catch (err) {
+    console.error("Upstash Redis REST Error:", err);
+    return null;
+  }
+}
+
+// Room management helpers
+async function addRoomUser(roomId, user) {
+  const redisResult = await redisRest(
+    "hset",
+    `room:${roomId}`,
+    user.id,
+    JSON.stringify(user)
+  );
+  if (redisResult !== null) {
+    await redisRest("expire", `room:${roomId}`, 7200);
+  }
+
+  // Always update local map as well
+  if (!rooms.has(roomId)) {
+    rooms.set(roomId, { users: [] });
+  }
+  const room = rooms.get(roomId);
+  const existingIdx = room.users.findIndex((u) => u.id === user.id);
+  if (existingIdx >= 0) {
+    room.users[existingIdx] = user;
+  } else {
+    room.users.push(user);
+  }
+}
+
+async function getRoomUsers(roomId) {
+  // Try Redis first for serverless multi-instance sync
+  const hashResult = await redisRest("hgetall", `room:${roomId}`);
+  if (hashResult && Array.isArray(hashResult) && hashResult.length > 0) {
+    const usersList = [];
+    for (let i = 1; i < hashResult.length; i += 2) {
+      try {
+        usersList.push(JSON.parse(hashResult[i]));
+      } catch (e) {
+        // ignore parse error
+      }
+    }
+    if (usersList.length > 0) return usersList;
+  }
+
+  // Fallback to local map
+  const roomData = rooms.get(roomId);
+  return roomData ? roomData.users : [];
+}
+
+async function removeRoomUser(roomId, userId) {
+  await redisRest("hdel", `room:${roomId}`, userId);
+
+  if (rooms.has(roomId)) {
+    const room = rooms.get(roomId);
+    room.users = room.users.filter((user) => user.id !== userId);
+    if (room.users.length === 0) {
+      rooms.delete(roomId);
+    }
+  }
+}
+
+// Clean up old local sessions (older than 5 minutes)
 const cleanupOldSessions = () => {
   const now = Date.now();
   const fiveMinutes = 5 * 60 * 1000;
 
   for (const [sessionId, session] of userSessions.entries()) {
     if (now - session.lastSeen > fiveMinutes) {
-      // Remove user from room
-      if (session.roomId && rooms.has(session.roomId)) {
-        const room = rooms.get(session.roomId);
-        room.users = room.users.filter((user) => user.id !== session.userId);
-        if (room.users.length === 0) {
-          rooms.delete(session.roomId);
-        }
+      if (session.roomId) {
+        removeRoomUser(session.roomId, session.userId);
       }
       userSessions.delete(sessionId);
     }
   }
 };
 
-// Run cleanup every minute
 setInterval(cleanupOldSessions, 60000);
 
 export async function GET(request) {
@@ -32,6 +105,7 @@ export async function GET(request) {
   const action = searchParams.get("action");
   const roomId = searchParams.get("roomId");
   const userId = searchParams.get("userId");
+  const userName = searchParams.get("userName") || userId;
   const sessionId = searchParams.get("sessionId");
 
   try {
@@ -44,44 +118,35 @@ export async function GET(request) {
           );
         }
 
-        // Create session
         const newSessionId = `session_${Date.now()}_${Math.random()
           .toString(36)
           .substr(2, 9)}`;
+        
         userSessions.set(newSessionId, {
           userId,
+          userName,
           roomId,
           lastSeen: Date.now(),
         });
 
-        // Add user to room
-        if (!rooms.has(roomId)) {
-          rooms.set(roomId, { users: [] });
-        }
+        const userObj = {
+          id: userId,
+          name: userName,
+          sessionId: newSessionId,
+          joinedAt: Date.now(),
+        };
 
-        const room = rooms.get(roomId);
-        const existingUserIndex = room.users.findIndex(
-          (user) => user.id === userId
-        );
-
-        if (existingUserIndex >= 0) {
-          room.users[existingUserIndex] = {
-            id: userId,
-            sessionId: newSessionId,
-            joinedAt: Date.now(),
-          };
-        } else {
-          room.users.push({
-            id: userId,
-            sessionId: newSessionId,
-            joinedAt: Date.now(),
-          });
-        }
+        await addRoomUser(roomId, userObj);
+        const currentUsers = await getRoomUsers(roomId);
 
         return Response.json({
           success: true,
           sessionId: newSessionId,
-          roomUsers: room.users.map((u) => u.id),
+          roomUsers: currentUsers.map((u) => u.id),
+          userProfiles: currentUsers.reduce((acc, u) => {
+            acc[u.id] = u.name;
+            return acc;
+          }, {}),
         });
 
       case "get-room-users":
@@ -89,12 +154,14 @@ export async function GET(request) {
           return Response.json({ error: "Missing roomId" }, { status: 400 });
         }
 
-        const roomData = rooms.get(roomId);
-        if (!roomData) {
-          return Response.json({ users: [] });
-        }
-
-        return Response.json({ users: roomData.users.map((u) => u.id) });
+        const roomUsersList = await getRoomUsers(roomId);
+        return Response.json({
+          users: roomUsersList.map((u) => u.id),
+          userProfiles: roomUsersList.reduce((acc, u) => {
+            acc[u.id] = u.name;
+            return acc;
+          }, {}),
+        });
 
       case "leave-room":
         if (!roomId || !userId) {
@@ -104,15 +171,8 @@ export async function GET(request) {
           );
         }
 
-        if (rooms.has(roomId)) {
-          const room = rooms.get(roomId);
-          room.users = room.users.filter((user) => user.id !== userId);
-          if (room.users.length === 0) {
-            rooms.delete(roomId);
-          }
-        }
+        await removeRoomUser(roomId, userId);
 
-        // Clean up session
         for (const [id, session] of userSessions.entries()) {
           if (session.userId === userId && session.roomId === roomId) {
             userSessions.delete(id);
@@ -144,34 +204,10 @@ export async function GET(request) {
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { action, roomId, userId, sessionId, targetUserId } = body;
+    const { action, roomId, userId, sessionId } = body;
 
     switch (action) {
       case "toggle-audio":
-        if (!roomId || !userId) {
-          return Response.json(
-            { error: "Missing roomId or userId" },
-            { status: 400 }
-          );
-        }
-
-        // Broadcast to other users in the room
-        if (rooms.has(roomId)) {
-          const room = rooms.get(roomId);
-          const otherUsers = room.users.filter((user) => user.id !== userId);
-
-          // In a real implementation, you'd store this event and poll for it
-          // For now, we'll just return success
-          return Response.json({
-            success: true,
-            event: "user-toggle-audio",
-            targetUserId: userId,
-            affectedUsers: otherUsers.map((u) => u.id),
-          });
-        }
-
-        return Response.json({ error: "Room not found" }, { status: 404 });
-
       case "toggle-video":
         if (!roomId || !userId) {
           return Response.json(
@@ -180,19 +216,15 @@ export async function POST(request) {
           );
         }
 
-        if (rooms.has(roomId)) {
-          const room = rooms.get(roomId);
-          const otherUsers = room.users.filter((user) => user.id !== userId);
+        const roomUsers = await getRoomUsers(roomId);
+        const otherUsers = roomUsers.filter((user) => user.id !== userId);
 
-          return Response.json({
-            success: true,
-            event: "user-toggle-video",
-            targetUserId: userId,
-            affectedUsers: otherUsers.map((u) => u.id),
-          });
-        }
-
-        return Response.json({ error: "Room not found" }, { status: 404 });
+        return Response.json({
+          success: true,
+          event: `user-${action}`,
+          targetUserId: userId,
+          affectedUsers: otherUsers.map((u) => u.id),
+        });
 
       case "ping":
         if (sessionId) {
@@ -212,3 +244,4 @@ export async function POST(request) {
     return Response.json({ error: "Internal server error" }, { status: 500 });
   }
 }
+

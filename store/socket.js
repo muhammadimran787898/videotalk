@@ -33,15 +33,16 @@ class APISocket {
 
       switch (event) {
         case "join-room":
-          const [roomId, userId] = args;
+          const [roomId, userId, userName] = args;
           this.roomId = roomId;
           this.userId = userId;
+          this.userName = userName || (typeof window !== "undefined" ? localStorage.getItem("streamtalk_username") : "") || userId;
           this.isConnecting = true;
           this.connectionStatus = "connecting";
           this.trigger("connecting");
 
           const joinResponse = await fetch(
-            `${baseUrl}/api/socket?action=join-room&roomId=${roomId}&userId=${userId}`
+            `${baseUrl}/api/socket?action=join-room&roomId=${roomId}&userId=${userId}&userName=${encodeURIComponent(this.userName)}`
           );
           const joinData = await joinResponse.json();
 
@@ -54,6 +55,11 @@ class APISocket {
             this.startPolling();
             this.trigger("connect");
             this.trigger("joined-room", roomId);
+
+            if (joinData.userProfiles) {
+              this.userProfiles = joinData.userProfiles;
+              this.trigger("profiles-updated", joinData.userProfiles);
+            }
 
             // Notify about existing users
             if (joinData.roomUsers) {

@@ -54,9 +54,9 @@ const usePeer = () => {
           console.log("✅ PeerJS connected! Your peer ID:", id);
           setMyId(id);
 
-          // Always try to join room - socket will handle connection state
-          console.log("📡 Joining room:", roomId, "with peer ID:", id);
-          socket.emit("join-room", roomId, id);
+          const savedName = typeof window !== "undefined" ? localStorage.getItem("streamtalk_username") || "" : "";
+          console.log("📡 Joining room:", roomId, "with peer ID:", id, "name:", savedName);
+          socket.emit("join-room", roomId, id, savedName);
         });
 
         myPeer.on("error", (error) => {

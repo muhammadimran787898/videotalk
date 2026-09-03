@@ -42,6 +42,11 @@ const PlayerCard = memo(
       ? !isAudioEnabled
       : !(player.audioEnabled ?? !player.muted);
 
+    const savedName = isMe && typeof window !== "undefined" ? localStorage.getItem("streamtalk_username") : null;
+    const rawName = savedName?.trim() || player.name;
+    const nameToDisplay = rawName || (isMe ? "You" : `User ${playerId?.slice(0, 4) || ""}`);
+    const badgeLabel = isMe && rawName ? `${rawName} (You)` : nameToDisplay;
+
     return (
       <div
         className={`relative cursor-pointer transition-all duration-200 ${
@@ -104,8 +109,8 @@ const PlayerCard = memo(
               }}
             >
               <Avatar className="w-10 h-10 sm:w-14 sm:h-16">
-                <AvatarFallback className="text-muted-foreground text-sm sm:text-lg">
-                  {(playerId?.slice(0, 2) || "U").toUpperCase()}
+                <AvatarFallback className="text-muted-foreground font-semibold text-sm sm:text-lg">
+                  {(nameToDisplay?.slice(0, 2) || "U").toUpperCase()}
                 </AvatarFallback>
               </Avatar>
             </div>
@@ -123,8 +128,8 @@ const PlayerCard = memo(
                 <Mic size={9} />
               )}
             </Badge>
-            <Badge variant="secondary" className="text-[9px] sm:text-[10px] font-medium px-1.5 h-4 sm:h-5">
-              {isMe ? "You" : `User ${playerId.slice(0, 4)}`}
+            <Badge variant="secondary" className="text-[9px] sm:text-[10px] font-medium px-1.5 h-4 sm:h-5 max-w-[120px] truncate">
+              {badgeLabel}
             </Badge>
           </div>
         </div>
