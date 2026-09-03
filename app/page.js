@@ -7,6 +7,7 @@ import { useSocket } from "@/store/socket";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import Logo from "@/components/logo";
 
 export default function Home() {
   const router = useRouter();
@@ -15,18 +16,19 @@ export default function Home() {
   const socket = useSocket();
 
   useEffect(() => {
-    const savedName = localStorage.getItem("streamtalk_username");
-    if (savedName) setUserName(savedName);
+    if (typeof window !== "undefined") {
+      const savedName = localStorage.getItem("streamtalk_username");
+      if (savedName) setUserName(savedName);
+    }
   }, []);
 
   const saveName = (name) => {
     setUserName(name);
-    if (name.trim()) {
+    if (name.trim() && typeof window !== "undefined") {
       localStorage.setItem("streamtalk_username", name.trim());
     }
   };
 
-  // Derive initial status from socket state during render; events handle updates.
   const [eventStatus, setEventStatus] = useState(null);
   const connectionStatus =
     eventStatus ??
@@ -40,28 +42,28 @@ export default function Home() {
 
   useEffect(() => {
     if (socket) {
-      socket.on("connecting", () => {
-        setEventStatus("Connecting...");
-      });
+      const onConnecting = () => setEventStatus("Connecting...");
+      const onConnect = () => setEventStatus("Connected");
+      const onDisconnect = () => setEventStatus("Disconnected");
+      const onError = () => setEventStatus("Connection failed");
 
-      socket.on("connect", () => {
-        setEventStatus("Connected");
-      });
+      socket.on("connecting", onConnecting);
+      socket.on("connect", onConnect);
+      socket.on("disconnect", onDisconnect);
+      socket.on("connect_error", onError);
 
-      socket.on("disconnect", () => {
-        setEventStatus("Disconnected");
-      });
-
-      socket.on("connect_error", () => {
-        setEventStatus("Connection failed");
-      });
+      return () => {
+        socket.off("connecting", onConnecting);
+        socket.off("connect", onConnect);
+        socket.off("disconnect", onDisconnect);
+        socket.off("connect_error", onError);
+      };
     }
   }, [socket]);
 
   const cleanRoomId = (rawInput) => {
     if (!rawInput) return "";
     let trimmed = rawInput.trim();
-    // If full URL was pasted, extract path segment
     if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
       try {
         const url = new URL(trimmed);
@@ -76,7 +78,7 @@ export default function Home() {
 
   const createAndJoin = () => {
     const newRoomId = uuidv4();
-    if (userName.trim()) {
+    if (userName.trim() && typeof window !== "undefined") {
       localStorage.setItem("streamtalk_username", userName.trim());
     }
     router.push(`/${newRoomId}`);
@@ -86,18 +88,16 @@ export default function Home() {
     e?.preventDefault();
     const finalRoomId = cleanRoomId(roomIdInput);
     if (finalRoomId) {
-      if (userName.trim()) {
+      if (userName.trim() && typeof window !== "undefined") {
         localStorage.setItem("streamtalk_username", userName.trim());
       }
       router.push(`/${finalRoomId}`);
-    } else {
-      alert("Please enter a valid room ID or paste a room link.");
     }
   };
 
   const getStatusVariant = () => {
-    if (connectionStatus === "Connected") return "default";
-    if (connectionStatus.includes("Connect")) return "secondary";
+    if (connectionStatus === "Connected") return "secondary";
+    if (connectionStatus.includes("Connect")) return "outline";
     if (connectionStatus === "Disconnected" || connectionStatus === "Connection failed")
       return "destructive";
     return "secondary";
@@ -110,13 +110,11 @@ export default function Home() {
 
       {/* Main content */}
       <div className="relative z-10 w-full max-w-sm mx-auto text-center animate-fade-in space-y-6">
-        {/* Header */}
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-foreground mb-1">
-            StreamTalk
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Instant live video calls & peer-to-peer chat.
+        {/* Header Logo */}
+        <div className="flex flex-col items-center gap-2">
+          <Logo size="lg" />
+          <p className="text-xs sm:text-sm text-muted-foreground max-w-xs mt-1">
+            Instant HD video calls, screen sharing & direct messaging.
           </p>
         </div>
 

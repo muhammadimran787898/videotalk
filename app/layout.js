@@ -2,8 +2,8 @@ import "./globals.css";
 import { SocketProviderWrapper } from "./providers";
 
 export const metadata = {
-  title: "StreamTalk — Private video calls",
-  description: "Instant, secure video calls with no sign-up required.",
+  title: "Let's Talk — Private HD Video Calls & Direct Messaging",
+  description: "Instant, secure HD video calls and direct messaging with no sign-up required.",
   icons: {
     icon: "/favicon.ico",
   },

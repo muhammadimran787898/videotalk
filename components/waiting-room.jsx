@@ -1,6 +1,7 @@
 import { Clock, ShieldAlert, UserX, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import Logo from "@/components/logo";
 
 const WaitingRoom = ({ status, errorMessage, onLeave }) => {
   const isRejected = status === "rejected";
@@ -12,6 +13,11 @@ const WaitingRoom = ({ status, errorMessage, onLeave }) => {
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,hsl(var(--muted)/0.2)_0%,transparent_70%)] pointer-events-none" />
 
       <div className="relative z-10 w-full max-w-sm mx-auto text-center space-y-6 animate-fade-in">
+        {/* Brand Logo Header */}
+        <div className="flex justify-center mb-2">
+          <Logo size="md" />
+        </div>
+
         {/* Icon Header */}
         <div className="flex justify-center">
           <Avatar className="w-16 h-16 border-2 border-border shadow-lg">

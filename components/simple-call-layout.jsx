@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Maximize2, Minimize2, Users, Share2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import Logo from "@/components/logo";
 import {
   Tooltip,
   TooltipContent,
@@ -53,8 +54,8 @@ const SimpleCallLayout = ({
     if (navigator.share) {
       try {
         await navigator.share({
-          title: "Join my video call",
-          text: "Join me for a video call on StreamTalk",
+          title: "Join my video call on Let's Talk",
+          text: "Join me for a video call on Let's Talk",
           url: window.location.href,
         });
       } catch (err) {
@@ -73,8 +74,10 @@ const SimpleCallLayout = ({
         {/* Top Bar */}
         <header className="shrink-0 border-b bg-background/80 backdrop-blur-sm">
           <div className="flex items-center justify-between px-3 sm:px-4 h-12 sm:h-14">
-            {/* Room Info */}
-            <div className="flex items-center gap-2 sm:gap-3">
+            {/* Logo & Room Info */}
+            <div className="flex items-center gap-2 sm:gap-4">
+              <Logo size="sm" />
+              <div className="h-4 w-px bg-border hidden sm:block" />
               <Badge
                 variant="outline"
                 onClick={copyRoomLink}

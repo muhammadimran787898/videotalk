@@ -1,9 +1,20 @@
 import { UserCheck, UserX, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { showToast } from "@/components/toast-notification";
 
 const HostApprovalBanner = ({ pendingRequests = [], onApprove, onReject }) => {
   if (!pendingRequests || pendingRequests.length === 0) return null;
+
+  const handleApprove = (req) => {
+    onApprove(req.id);
+    showToast(`Allowed ${req.name || "User"} to join the call`, "success");
+  };
+
+  const handleReject = (req) => {
+    onReject(req.id);
+    showToast(`Declined request from ${req.name || "User"}`, "error");
+  };
 
   return (
     <div className="fixed top-14 left-1/2 -translate-x-1/2 z-50 w-full max-w-md px-3 animate-fade-in">
@@ -40,7 +51,7 @@ const HostApprovalBanner = ({ pendingRequests = [], onApprove, onReject }) => {
                 <Button
                   size="sm"
                   variant="default"
-                  onClick={() => onApprove(req.id)}
+                  onClick={() => handleApprove(req)}
                   className="h-8 px-2.5 text-xs gap-1 bg-green-600 hover:bg-green-700 text-white"
                 >
                   <UserCheck size={13} />
@@ -49,7 +60,7 @@ const HostApprovalBanner = ({ pendingRequests = [], onApprove, onReject }) => {
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() => onReject(req.id)}
+                  onClick={() => handleReject(req)}
                   className="h-8 px-2.5 text-xs gap-1 text-destructive hover:bg-destructive/10 hover:text-destructive"
                 >
                   <UserX size={13} />

@@ -18,6 +18,7 @@ import SimpleChat from "@/components/simple-chat";
 import PermissionRequest from "@/components/permission-request";
 import WaitingRoom from "@/components/waiting-room";
 import HostApprovalBanner from "@/components/host-approval-banner";
+import ToastContainer, { showToast } from "@/components/toast-notification";
 
 const Room = () => {
   const socket = useSocket();
@@ -66,7 +67,19 @@ const Room = () => {
     if (!socket) return;
 
     const handleStatusChanged = (info) => {
-      if (info.status) setRoomStatus(info.status);
+      if (info.status) {
+        setRoomStatus((prevStatus) => {
+          if (prevStatus === "waiting" && info.status === "approved") {
+            showToast("Host approved your request! Joining call...", "success");
+            if (roomId && myId) {
+              socket.emit("join-room", roomId, myId);
+            }
+          } else if (info.status === "rejected") {
+            showToast("Host declined your request to join", "error");
+          }
+          return info.status;
+        });
+      }
       if (info.isHost !== undefined) setIsHost(info.isHost);
     };
 
@@ -85,7 +98,7 @@ const Room = () => {
       socket.off("room-status-changed", handleStatusChanged);
       socket.off("pending-requests-updated", handlePendingUpdated);
     };
-  }, [socket]);
+  }, [socket, roomId, myId]);
 
   // Initialize screen share functionality
   const {
@@ -113,11 +126,9 @@ const Room = () => {
     return () => clearInterval(timer);
   }, [callStartTime]);
 
-  // Add yourself to players when stream is ready
-  const hasSetupPlayer = useRef(false);
+  // Add yourself to players when stream is ready and status is approved
   useEffect(() => {
-    if (hasSetupPlayer.current || !myId || !stream) return;
-    hasSetupPlayer.current = true;
+    if (!myId || !stream || roomStatus !== "approved") return;
     setPlayers((prev) => ({
       ...prev,
       [myId]: {
@@ -127,7 +138,7 @@ const Room = () => {
         audioEnabled: isAudioEnabled,
       },
     }));
-  }, [myId, stream, isAudioEnabled, isVideoEnabled, setPlayers]);
+  }, [myId, stream, roomStatus, isAudioEnabled, isVideoEnabled, setPlayers]);
 
   const retryMediaStream = async () => {
     if (process.env.NODE_ENV === "development") {
@@ -328,15 +339,19 @@ const Room = () => {
   // Render Waiting Room for guests if not approved
   if (roomStatus === "waiting" || roomStatus === "rejected" || roomStatus === "full") {
     return (
-      <WaitingRoom
-        status={roomStatus}
-        onLeave={leaveRoom}
-      />
+      <>
+        <ToastContainer />
+        <WaitingRoom
+          status={roomStatus}
+          onLeave={leaveRoom}
+        />
+      </>
     );
   }
 
   return (
     <>
+      <ToastContainer />
       {/* Permission Request Overlay */}
       {(mediaError || !permissions.audio || !permissions.video) && (
         <PermissionRequest
