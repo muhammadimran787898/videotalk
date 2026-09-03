@@ -3,9 +3,19 @@ import { useParams } from "next/navigation";
 
 const { useState, useEffect, useRef } = require("react");
 
+const getPersistentUserId = () => {
+  if (typeof window === "undefined") return undefined;
+  let id = localStorage.getItem("streamtalk_user_id");
+  if (!id) {
+    id = `usr_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+    localStorage.setItem("streamtalk_user_id", id);
+  }
+  return id;
+};
+
 const usePeer = () => {
   const socket = useSocket();
-  const { roomId } = useParams(); // Updated to use app directory router
+  const { roomId } = useParams();
   const [peer, setPeer] = useState(null);
   const [myId, setMyId] = useState("");
   const isPeerSetRef = useRef(false);
@@ -19,17 +29,17 @@ const usePeer = () => {
       try {
         console.log("🔄 Initializing PeerJS...");
         const Peer = (await import("peerjs")).default;
-        myPeer = new Peer({
+        const customId = getPersistentUserId();
+
+        const peerConfig = {
           config: {
             iceServers: [
-              // STUN servers — discover public IP across global ISPs
               { urls: "stun:stun.l.google.com:19302" },
               { urls: "stun:stun1.l.google.com:19302" },
               { urls: "stun:stun2.l.google.com:19302" },
               { urls: "stun:stun3.l.google.com:19302" },
               { urls: "stun:stun4.l.google.com:19302" },
               { urls: "stun:global.stun.twilio.com:3478" },
-              // TURN servers — relay media when direct P2P fails (firewalls, NAT, cross-country)
               {
                 urls: "turn:openrelay.metered.ca:80",
                 username: "openrelayproject",
@@ -46,12 +56,14 @@ const usePeer = () => {
                 credential: "openrelayproject",
               },
             ],
-            sdpSemantics: "unified-plan", // Use unified plan for better compatibility
-            iceCandidatePoolSize: 10, // Gather more ICE candidates
+            sdpSemantics: "unified-plan",
+            iceCandidatePoolSize: 10,
           },
-          // Add debug logging
           debug: process.env.NODE_ENV === "development" ? 2 : 0,
-        });
+        };
+
+        // Initialize PeerJS with persistent ID if available
+        myPeer = customId ? new Peer(customId, peerConfig) : new Peer(peerConfig);
         setPeer(myPeer);
 
         myPeer.on("open", (id) => {

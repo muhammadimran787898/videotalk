@@ -213,6 +213,7 @@ export async function GET(request) {
 
         return Response.json({
           success: true,
+          sessionId: newSessionId,
           isWaiting: true,
           status: "waiting",
           message: "Waiting for host approval...",
