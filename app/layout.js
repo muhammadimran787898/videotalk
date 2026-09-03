@@ -5,7 +5,9 @@ export const metadata = {
   title: "Let's Talk — Private HD Video Calls & Direct Messaging",
   description: "Instant, secure HD video calls and direct messaging with no sign-up required.",
   icons: {
-    icon: "/favicon.ico",
+    icon: "/icon.svg",
+    shortcut: "/icon.svg",
+    apple: "/icon.svg",
   },
 };
 
