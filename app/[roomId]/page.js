@@ -418,6 +418,7 @@ const Room = () => {
               showToast("Removed participant from call", "info");
             }}
             myId={myId}
+            roomId={roomId}
             isHost={isHost}
             isAudioEnabled={isAudioEnabled}
             selectedAudioOutput={selectedAudioOutput}

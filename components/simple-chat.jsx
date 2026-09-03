@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Send, MessageCircle, X, Users, Lock } from "lucide-react";
+import { Send, MessageCircle, X, Users, Lock, Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -22,30 +22,56 @@ const SimpleChat = ({
   onToggle,
   className = "",
 }) => {
+  const [activeTab, setActiveTab] = useState("public"); // "public" | "private"
   const [messageInput, setMessageInput] = useState("");
-  const [recipientId, setRecipientId] = useState("everyone");
+  const [privateRecipientId, setPrivateRecipientId] = useState("");
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
+
+  // Set default private recipient to first connected peer if available
+  useEffect(() => {
+    if (connectedPeers.length > 0 && !privateRecipientId) {
+      setPrivateRecipientId(connectedPeers[0]);
+    }
+  }, [connectedPeers, privateRecipientId]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
-  // Auto-scroll to bottom when new messages arrive
+  // Filter messages based on active tab and private recipient
+  const visibleMessages = messages.filter((m) => {
+    if (activeTab === "public") {
+      return !m.isPrivate; // STRICTLY PUBLIC MESSAGES ONLY
+    }
+    // Private tab: only private messages involving selected recipient
+    if (!m.isPrivate) return false;
+    if (!privateRecipientId) return true; // Show all private messages if no recipient selected yet
+    return (
+      m.senderId === privateRecipientId ||
+      m.recipientId === privateRecipientId ||
+      (m.isOwn && m.recipientId === privateRecipientId)
+    );
+  });
+
+  // Auto-scroll to bottom when new visible messages arrive
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [visibleMessages.length, activeTab, privateRecipientId]);
 
-  // Focus input when chat opens
+  // Focus input when chat opens or tab changes
   useEffect(() => {
     if (isOpen && inputRef.current) {
       setTimeout(() => inputRef.current.focus(), 100);
     }
-  }, [isOpen]);
+  }, [isOpen, activeTab]);
 
   const handleSendMessage = (e) => {
     e.preventDefault();
     if (!messageInput.trim() || !isConnected) return;
+
+    const recipientId = activeTab === "public" ? "everyone" : privateRecipientId;
+    if (activeTab === "private" && !recipientId) return;
 
     const selectedName =
       recipientId === "everyone"
@@ -80,7 +106,7 @@ const SimpleChat = ({
         <SheetHeader className="px-4 py-3 border-b space-y-1.5">
           <SheetTitle className="flex items-center gap-2 text-sm font-medium">
             <MessageCircle size={16} />
-            Chat & Direct Messaging
+            In-Call Messaging
           </SheetTitle>
           {isConnected && (
             <div className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -90,6 +116,33 @@ const SimpleChat = ({
           )}
         </SheetHeader>
 
+        {/* Public / Private Tab Switcher */}
+        <div className="flex border-b bg-muted/30 p-1.5 gap-1">
+          <button
+            onClick={() => setActiveTab("public")}
+            className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition-all ${
+              activeTab === "public"
+                ? "bg-background text-foreground shadow-sm font-semibold border border-border"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+            }`}
+          >
+            <Globe size={13} className="text-blue-500" />
+            <span>Public Chat</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab("private")}
+            className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition-all ${
+              activeTab === "private"
+                ? "bg-amber-950/40 text-amber-300 shadow-sm font-semibold border border-amber-500/40"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+            }`}
+          >
+            <Lock size={13} className="text-amber-400" />
+            <span>Private Chat</span>
+          </button>
+        </div>
+
         {/* Connection Status Banner */}
         {!isConnected && (
           <div className="px-4 py-2 text-xs text-muted-foreground text-center border-b bg-muted/50">
@@ -97,20 +150,55 @@ const SimpleChat = ({
           </div>
         )}
 
+        {/* Private Recipient Filter Dropdown (Only in Private Tab) */}
+        {activeTab === "private" && (
+          <div className="px-3 py-2 border-b bg-amber-950/20 flex items-center gap-2">
+            <span className="text-[11px] text-amber-200 font-medium shrink-0">
+              Private with:
+            </span>
+            <select
+              value={privateRecipientId}
+              onChange={(e) => setPrivateRecipientId(e.target.value)}
+              className="bg-background text-foreground text-xs rounded-md px-2 py-1 border border-amber-500/40 focus:outline-none focus:ring-1 focus:ring-amber-500 flex-1 font-medium cursor-pointer"
+            >
+              {connectedPeers.length === 0 ? (
+                <option value="">No other participants online</option>
+              ) : (
+                connectedPeers.map((peerId) => (
+                  <option key={peerId} value={peerId}>
+                    🔒 {userProfiles[peerId] || `User ${peerId.slice(0, 4)}`}
+                  </option>
+                ))
+              )}
+            </select>
+          </div>
+        )}
+
         {/* Messages Container */}
         <ScrollArea className="flex-1 px-4 py-3 scrollbar-thin">
-          {messages.length === 0 ? (
+          {visibleMessages.length === 0 ? (
             <div className="text-center text-muted-foreground text-sm mt-8 space-y-2">
-              <MessageCircle
-                size={24}
-                className="mx-auto opacity-40"
-              />
-              <p>No messages yet</p>
-              <p className="text-xs opacity-70">Send a public or private message to start</p>
+              {activeTab === "public" ? (
+                <>
+                  <Globe size={24} className="mx-auto opacity-40 text-blue-500" />
+                  <p className="font-medium text-foreground">No public messages</p>
+                  <p className="text-xs opacity-70">Messages sent here are visible to everyone in the call.</p>
+                </>
+              ) : (
+                <>
+                  <Lock size={24} className="mx-auto opacity-40 text-amber-400" />
+                  <p className="font-medium text-foreground">No private messages</p>
+                  <p className="text-xs opacity-70">
+                    {connectedPeers.length === 0
+                      ? "Wait for another participant to join to send private messages."
+                      : "Send encrypted direct messages that only you and the recipient can see."}
+                  </p>
+                </>
+              )}
             </div>
           ) : (
             <div className="space-y-2.5">
-              {messages.map((message) => (
+              {visibleMessages.map((message) => (
                 <div
                   key={message.id}
                   className={`flex ${
@@ -164,27 +252,8 @@ const SimpleChat = ({
           )}
         </ScrollArea>
 
-        {/* Message Input & Recipient Selector */}
-        <div className="border-t p-3 space-y-2">
-          {/* Recipient Dropdown */}
-          <div className="flex items-center gap-1.5">
-            <span className="text-[11px] text-muted-foreground font-medium shrink-0">
-              Send To:
-            </span>
-            <select
-              value={recipientId}
-              onChange={(e) => setRecipientId(e.target.value)}
-              className="bg-muted text-foreground text-xs rounded-md px-2 py-1 border border-border focus:outline-none focus:ring-1 focus:ring-primary flex-1 font-medium cursor-pointer"
-            >
-              <option value="everyone">Everyone (Public)</option>
-              {connectedPeers.map((peerId) => (
-                <option key={peerId} value={peerId}>
-                  🔒 {userProfiles[peerId] || `User ${peerId.slice(0, 4)}`} (Private)
-                </option>
-              ))}
-            </select>
-          </div>
-
+        {/* Message Input Container */}
+        <div className="border-t p-3 space-y-2 bg-card">
           <form onSubmit={handleSendMessage} className="flex gap-2">
             <Input
               ref={inputRef}
@@ -193,21 +262,29 @@ const SimpleChat = ({
               onChange={(e) => setMessageInput(e.target.value)}
               onKeyPress={handleKeyPress}
               placeholder={
-                isConnected
-                  ? recipientId === "everyone"
-                    ? "Type a public message..."
-                    : `Private message to ${userProfiles[recipientId] || "user"}...`
-                  : "Connecting..."
+                !isConnected
+                  ? "Connecting..."
+                  : activeTab === "public"
+                  ? "Type a public message to everyone..."
+                  : privateRecipientId
+                  ? `Private message to ${userProfiles[privateRecipientId] || "user"}...`
+                  : "Select a participant for private chat..."
               }
-              disabled={!isConnected}
+              disabled={!isConnected || (activeTab === "private" && !privateRecipientId)}
               maxLength={300}
               className="flex-1 text-sm h-9"
             />
             <Button
               type="submit"
               size="icon"
-              disabled={!messageInput.trim() || !isConnected}
-              className="h-9 w-9 shrink-0"
+              disabled={
+                !messageInput.trim() ||
+                !isConnected ||
+                (activeTab === "private" && !privateRecipientId)
+              }
+              className={`h-9 w-9 shrink-0 ${
+                activeTab === "private" ? "bg-amber-600 hover:bg-amber-700 text-white" : ""
+              }`}
             >
               <Send size={14} />
             </Button>

@@ -12,6 +12,7 @@ const usePlayer = (myId, roomId, peer, mediaControls = {}) => {
   const {
     toggleAudio: toggleMediaAudio,
     toggleVideo: toggleMediaVideo,
+    stopStream,
     isAudioEnabled,
     isVideoEnabled,
   } = mediaControls;
@@ -25,6 +26,11 @@ const usePlayer = (myId, roomId, peer, mediaControls = {}) => {
     if (!socket || !myId) return; // Safety check
 
     console.log(`👋 Leaving room ${roomId} with peer ID ${myId}`);
+
+    // Stop all media stream tracks (turn off camera & mic hardware)
+    if (stopStream) {
+      stopStream();
+    }
 
     // Emit leave event to server
     socket.emit("user-leave", myId, roomId);

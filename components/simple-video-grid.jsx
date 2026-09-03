@@ -119,11 +119,12 @@ const PlayerCard = memo(
             </div>
           )}
 
-          {/* Top-Right Circular Audio Status Badge */}
+          {/* Top-Right Circular Audio Status Badge & Raised Hand Badge */}
           <div className="absolute top-2 right-2 z-10 flex items-center gap-1.5">
             {isHandRaised && (
-              <Badge variant="secondary" className="bg-amber-500 text-white p-1 rounded-full animate-bounce shadow-md">
-                <Hand size={12} />
+              <Badge variant="secondary" className="bg-amber-500 text-white font-semibold px-2 py-0.5 rounded-full animate-bounce shadow-md flex items-center gap-1 border border-amber-400/50">
+                <Hand size={13} />
+                <span className="text-[10px] hidden sm:inline">Hands Up</span>
               </Badge>
             )}
             <div
@@ -206,6 +207,8 @@ const SimpleVideoGrid = ({
   onPlayerClick,
   onRemoveUser,
   myId,
+  roomId = "",
+  roomTitle = "",
   isHost = false,
   className = "",
   isAudioEnabled,
@@ -234,15 +237,17 @@ const SimpleVideoGrid = ({
     onPlayerClick?.(playerId);
   };
 
+  const displayTitle = roomTitle?.trim() || `Meeting Call #${roomId || ""}`;
+
   return (
     <div className={`relative w-full h-full bg-black overflow-hidden flex flex-col p-2 sm:p-3 ${className}`}>
       {/* Animated Floating Emoji Reactions Overlay */}
       <EmojiReactionsOverlay activeReactions={activeReactions} />
 
-      {/* Top Left Meeting Header Overlay */}
+      {/* Top Left Dynamic Meeting Header Overlay */}
       <div className="absolute top-4 left-4 z-30 flex flex-col gap-0.5 text-white drop-shadow-md">
         <h2 className="text-sm sm:text-base font-bold tracking-tight">
-          Design Team Meeting
+          {displayTitle}
         </h2>
         <div className="flex items-center gap-1.5 text-xs text-white/80 font-medium">
           <Users size={13} />

@@ -181,6 +181,26 @@ const useMediaStream = () => {
     })();
   }, []);
 
+  const stopStream = () => {
+    if (state) {
+      console.log("🛑 Stopping all camera and microphone tracks...");
+      state.getTracks().forEach((track) => {
+        track.stop();
+        console.log(`  └ Stopped ${track.kind} track`);
+      });
+      setState(null);
+    }
+  };
+
+  // Automatically clean up stream when component unmounts
+  useEffect(() => {
+    return () => {
+      if (state) {
+        state.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, [state]);
+
   const toggleAudio = () => {
     if (state) {
       const audioTracks = state.getAudioTracks();
@@ -223,6 +243,7 @@ const useMediaStream = () => {
     isVideoEnabled,
     toggleAudio,
     toggleVideo,
+    stopStream,
     error,
     permissions,
     audioDevices,
