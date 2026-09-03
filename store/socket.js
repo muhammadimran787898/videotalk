@@ -95,6 +95,29 @@ class APISocket {
           });
           break;
 
+        case "user-start-screen-share":
+          const [startSharerId, startRoomId, startName] = args;
+          const startRes = await this.makeAPICall("start-screen-share", {
+            roomId: startRoomId,
+            userId: startSharerId,
+            userName: startName || this.userName,
+          });
+          if (startRes.success) {
+            this.activeScreenSharer = startRes.activeScreenSharer;
+            this.trigger("screen-sharer-changed", startRes.activeScreenSharer);
+          }
+          return startRes;
+
+        case "user-stop-screen-share":
+          const [stopSharerId, stopRoomId] = args;
+          await this.makeAPICall("stop-screen-share", {
+            roomId: stopRoomId,
+            userId: stopSharerId,
+          });
+          this.activeScreenSharer = null;
+          this.trigger("screen-sharer-changed", null);
+          break;
+
         case "user-leave":
           const [leaveUserId, leaveRoomId] = args;
           await this.makeAPICall("leave-room", {
@@ -168,6 +191,18 @@ class APISocket {
           });
 
           this.lastKnownUsers = data.users;
+        }
+
+        if (data.userProfiles) {
+          this.userProfiles = data.userProfiles;
+          this.trigger("profiles-updated", data.userProfiles);
+        }
+
+        const newSharerStr = JSON.stringify(data.activeScreenSharer || null);
+        const oldSharerStr = JSON.stringify(this.activeScreenSharer || null);
+        if (newSharerStr !== oldSharerStr) {
+          this.activeScreenSharer = data.activeScreenSharer || null;
+          this.trigger("screen-sharer-changed", this.activeScreenSharer);
         }
       } catch (error) {
         console.error("❌ Polling error:", error);

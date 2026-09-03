@@ -1,4 +1,4 @@
-import { Mic, Video, PhoneOff, MicOff, VideoOff, MessageCircle } from "lucide-react";
+import { Mic, Video, PhoneOff, MicOff, VideoOff, MessageCircle, MonitorUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -17,12 +17,16 @@ const FloatingControls = ({
   onToggleChat,
   isChatOpen = false,
   unreadCount = 0,
+  isScreenSharing = false,
+  toggleScreenShare,
+  isAnotherSharing = false,
+  activeScreenSharer = null,
 }) => {
   return (
     <TooltipProvider>
       <div className="fixed bottom-0 left-0 right-0 z-50 border-t bg-background/80 backdrop-blur-sm">
         <div className="flex items-center justify-between h-14 sm:h-16 px-3 sm:px-4 max-w-2xl mx-auto">
-          {/* Left — Media Controls */}
+          {/* Left — Media & Screen Share Controls */}
           <div className="flex items-center gap-2">
             <Tooltip>
               <TooltipTrigger asChild>
@@ -56,6 +60,29 @@ const FloatingControls = ({
               </TooltipContent>
             </Tooltip>
 
+            {toggleScreenShare && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant={isScreenSharing ? "default" : "secondary"}
+                    size="icon"
+                    onClick={toggleScreenShare}
+                    disabled={isAnotherSharing}
+                    className={isScreenSharing ? "bg-blue-600 hover:bg-blue-700 text-white" : ""}
+                    aria-label={isScreenSharing ? "Stop sharing screen" : "Share screen"}
+                  >
+                    <MonitorUp size={18} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {isScreenSharing
+                    ? "Stop sharing screen"
+                    : isAnotherSharing
+                    ? `Active by ${activeScreenSharer?.userName || "another participant"}`
+                    : "Share screen"}
+                </TooltipContent>
+              </Tooltip>
+            )}
           </div>
 
           {/* Center — Leave Call */}

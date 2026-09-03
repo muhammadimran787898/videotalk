@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 // In-memory store for local dev fallback
 const rooms = new Map();
 const userSessions = new Map();
+const screenSharers = new Map();
 
 // Upstash / Vercel KV REST Execution Helper for Serverless Persistence
 async function redisRest(command, ...args) {
@@ -81,6 +82,32 @@ async function removeRoomUser(roomId, userId) {
       rooms.delete(roomId);
     }
   }
+
+  // Clear screen sharer if leaving user was sharing
+  const currentSharer = await getScreenSharer(roomId);
+  if (currentSharer && currentSharer.userId === userId) {
+    await clearScreenSharer(roomId);
+  }
+}
+
+async function getScreenSharer(roomId) {
+  const redisData = await redisRest("get", `screenshare:${roomId}`);
+  if (redisData) {
+    try {
+      return JSON.parse(redisData);
+    } catch (e) {}
+  }
+  return screenSharers.get(roomId) || null;
+}
+
+async function setScreenSharer(roomId, sharerObj) {
+  await redisRest("set", `screenshare:${roomId}`, JSON.stringify(sharerObj));
+  screenSharers.set(roomId, sharerObj);
+}
+
+async function clearScreenSharer(roomId) {
+  await redisRest("del", `screenshare:${roomId}`);
+  screenSharers.delete(roomId);
 }
 
 // Clean up old local sessions (older than 5 minutes)
@@ -138,6 +165,7 @@ export async function GET(request) {
 
         await addRoomUser(roomId, userObj);
         const currentUsers = await getRoomUsers(roomId);
+        const activeSharer = await getScreenSharer(roomId);
 
         return Response.json({
           success: true,
@@ -147,6 +175,7 @@ export async function GET(request) {
             acc[u.id] = u.name;
             return acc;
           }, {}),
+          activeScreenSharer: activeSharer,
         });
 
       case "get-room-users":
@@ -155,12 +184,14 @@ export async function GET(request) {
         }
 
         const roomUsersList = await getRoomUsers(roomId);
+        const currentActiveSharer = await getScreenSharer(roomId);
         return Response.json({
           users: roomUsersList.map((u) => u.id),
           userProfiles: roomUsersList.reduce((acc, u) => {
             acc[u.id] = u.name;
             return acc;
           }, {}),
+          activeScreenSharer: currentActiveSharer,
         });
 
       case "leave-room":
@@ -204,9 +235,55 @@ export async function GET(request) {
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { action, roomId, userId, sessionId } = body;
+    const { action, roomId, userId, userName } = body;
 
     switch (action) {
+      case "start-screen-share":
+        if (!roomId || !userId) {
+          return Response.json(
+            { error: "Missing roomId or userId" },
+            { status: 400 }
+          );
+        }
+
+        const existingSharer = await getScreenSharer(roomId);
+        if (existingSharer && existingSharer.userId !== userId) {
+          return Response.json({
+            success: false,
+            error: "Another user is already sharing their screen",
+            activeScreenSharer: existingSharer,
+          });
+        }
+
+        const sharerInfo = {
+          userId,
+          userName: userName || userId,
+          startedAt: Date.now(),
+        };
+        await setScreenSharer(roomId, sharerInfo);
+
+        return Response.json({
+          success: true,
+          activeScreenSharer: sharerInfo,
+        });
+
+      case "stop-screen-share":
+        if (!roomId || !userId) {
+          return Response.json(
+            { error: "Missing roomId or userId" },
+            { status: 400 }
+          );
+        }
+
+        const activeSharerToStop = await getScreenSharer(roomId);
+        if (activeSharerToStop && activeSharerToStop.userId === userId) {
+          await clearScreenSharer(roomId);
+        }
+
+        return Response.json({
+          success: true,
+        });
+
       case "toggle-audio":
       case "toggle-video":
         if (!roomId || !userId) {
@@ -227,6 +304,7 @@ export async function POST(request) {
         });
 
       case "ping":
+        const { sessionId } = body;
         if (sessionId) {
           const session = userSessions.get(sessionId);
           if (session) {

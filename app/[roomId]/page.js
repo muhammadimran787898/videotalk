@@ -9,6 +9,7 @@ import usePeer from "@/hooks/use-peer";
 import useMediaStream from "@/hooks/use-media-stream";
 import usePlayer from "@/hooks/use-player";
 import useChat from "@/hooks/use-chat";
+import useScreenShare from "@/hooks/use-screen-share";
 
 import SimpleCallLayout from "@/components/simple-call-layout";
 import FloatingControls from "@/components/floating-controls";
@@ -53,6 +54,14 @@ const Room = () => {
   const [callStartTime] = useState(() => Date.now());
   const [callDuration, setCallDuration] = useState(0);
   const [isChatOpen, setIsChatOpen] = useState(false);
+
+  // Initialize screen share functionality
+  const {
+    isScreenSharing,
+    activeScreenSharer,
+    isAnotherSharing,
+    toggleScreenShare,
+  } = useScreenShare(myId, roomId, stream, users, setPlayers);
 
   // Initialize chat functionality
   const {
@@ -344,6 +353,10 @@ const Room = () => {
           onToggleChat={() => setIsChatOpen((prev) => !prev)}
           isChatOpen={isChatOpen}
           unreadCount={messages.length}
+          isScreenSharing={isScreenSharing}
+          toggleScreenShare={toggleScreenShare}
+          isAnotherSharing={isAnotherSharing}
+          activeScreenSharer={activeScreenSharer}
         />
       )}
 
